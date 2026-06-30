@@ -1,57 +1,76 @@
 class OLTogetherController extends OLPlayerController;
 
-// ─────────────────────────────────────────────
-//  Network
-// ─────────────────────────────────────────────
 var OLTogetherLink NetworkLink;
 var int            MyRole;
 var float          LastSendTime;
 var float          InterpSpeed;
+var int            MyPlayerID;
 
-// ─────────────────────────────────────────────
-//  Remote players — parallel fixed-size arrays
-//  UE3 does not support array<struct> properly,
-//  so we use parallel arrays indexed 0..MAX-1.
-// ─────────────────────────────────────────────
 const MAX_PLAYERS = 8;
 
-var int     RemoteID          [8];   // 0 = slot empty
+var int     RemoteID          [8];
 var Pawn    RemoteDummy       [8];
 var vector  RemoteLoc         [8];
 var vector  RemoteVel         [8];
 var rotator RemoteRot         [8];
-var int     RemoteHasData     [8];   // bool stored as int (UE3: no bool arrays)
+var int     RemoteHasData     [8];
 var int     RemoteCrouched    [8];
 var int     RemoteCamcorder   [8];
 var int     RemoteCamState    [8];
 var int     RemoteDummyCrouch [8];
 
-// Pending timer target slot (one pending per callback type is enough
-// because animations queue naturally and slots fire sequentially)
 var int PendingIdleSlot;
 var int PendingHidePropSlot;
 var int PendingFinishReloadSlot;
 
 // ─────────────────────────────────────────────
-//  Init
+//  Validate slot — the single safe-guard used everywhere.
 // ─────────────────────────────────────────────
+function bool IsSlotValid(int i)
+{
+    if (i < 0 || i >= MAX_PLAYERS) return false;
+    if (RemoteID[i] == 0)          return false;
+    if (RemoteDummy[i] == None)    return false;
+    if (RemoteDummy[i].bDeleteMe)
+    {
+        RemoteDummy[i] = None;
+        ClearSlotData(i);
+        return false;
+    }
+    return true;
+}
+
 event PostBeginPlay()
 {
     local int i;
     super.PostBeginPlay();
-
     for (i = 0; i < MAX_PLAYERS; i++)
-        RemoteID[i] = 0;
+        ClearSlotData(i);
+    MyPlayerID = 0;
+    MyRole     = int(WorldInfo.Game.ParseOption(WorldInfo.GetLocalURL(), "Role"));
 
-    MyRole      = int(WorldInfo.Game.ParseOption(WorldInfo.GetLocalURL(), "Role"));
+    // Spawn the TcpLink actor now, but it will NOT touch sockets until
+    // we have a Pawn — see OLTogetherLink.TryStartConnect(). Spawning the
+    // actor itself here is safe; only Resolve()/Open() were the problem.
     NetworkLink = Spawn(class'OLTogetherLink', self);
     if (NetworkLink != None)
         NetworkLink.ControllerOwner = self;
 }
 
-// ─────────────────────────────────────────────
-//  Slot helpers
-// ─────────────────────────────────────────────
+function ClearSlotData(int i)
+{
+    RemoteID[i]          = 0;
+    RemoteDummy[i]       = None;
+    RemoteHasData[i]     = 0;
+    RemoteCrouched[i]    = 0;
+    RemoteCamcorder[i]   = 0;
+    RemoteCamState[i]    = 0;
+    RemoteDummyCrouch[i] = 0;
+    RemoteLoc[i]         = vect(0,0,0);
+    RemoteVel[i]         = vect(0,0,0);
+    RemoteRot[i]         = rot(0,0,0);
+}
+
 function int FindSlot(int ID)
 {
     local int i;
@@ -68,66 +87,74 @@ function int AllocSlot(int ID)
     {
         if (RemoteID[i] == 0)
         {
-            RemoteID[i]          = ID;
-            RemoteHasData[i]     = 0;
-            RemoteCrouched[i]    = 0;
-            RemoteCamcorder[i]   = 0;
-            RemoteCamState[i]    = 0;
-            RemoteDummyCrouch[i] = 0;
+            ClearSlotData(i);
+            RemoteID[i] = ID;
             return i;
         }
     }
-    return -1; // full
+    return -1;
 }
 
 function FreeSlot(int i)
 {
-    if (RemoteDummy[i] != None)
+    local Controller C;
+    if (i < 0 || i >= MAX_PLAYERS) return;
+
+    if (RemoteDummy[i] != None && !RemoteDummy[i].bDeleteMe)
     {
+        C = RemoteDummy[i].Controller;
+        if (C != None)
+        {
+            C.UnPossess();
+            C.Destroy();
+        }
         RemoteDummy[i].Destroy();
-        RemoteDummy[i] = None;
     }
-    RemoteID[i] = 0;
+    ClearSlotData(i);
 }
 
 function int FindOrCreateSlot(int ID)
 {
     local int          i;
     local AIController AIC;
+    local vector       SpawnLoc;
+    local OLTogetherHUD THUD;
 
     i = FindSlot(ID);
-    if (i >= 0)
-        return i;
+    if (i >= 0) return i;
+
+    // Only spawn dummies once we ourselves are fully in-game
+    if (Pawn == None || Pawn.bDeleteMe) return -1;
 
     i = AllocSlot(ID);
-    if (i < 0)
-        return -1;
+    if (i < 0) return -1;
 
-    if (Pawn != None)
+    SpawnLoc = Pawn.Location;
+
+    RemoteDummy[i] = Spawn(class'OLTogetherHero',,, SpawnLoc,,, true);
+    if (RemoteDummy[i] != None)
     {
-        RemoteDummy[i] = Spawn(class'OLTogetherHero',,, Pawn.Location, Pawn.Rotation,, true);
-        if (RemoteDummy[i] != None)
-        {
-            RemoteDummy[i].SetPhysics(PHYS_Walking);
-            RemoteDummy[i].SetCollision(true, true);
-            RemoteDummy[i].bCollideWorld = false;
+        RemoteDummy[i].SetPhysics(PHYS_Walking);
+        RemoteDummy[i].SetCollision(true, true);
+        RemoteDummy[i].bCollideWorld = false;
 
-            AIC = Spawn(class'AIController');
-            if (AIC != None)
-                AIC.Possess(RemoteDummy[i], false);
+        AIC = Spawn(class'AIController');
+        if (AIC != None)
+            AIC.Possess(RemoteDummy[i], false);
 
-            SetupDummyVisuals(OLHero(RemoteDummy[i]));
-        }
+        SetupDummyVisuals(OLHero(RemoteDummy[i]));
     }
+
+    THUD = OLTogetherHUD(myHUD);
+    if (THUD != None)
+        THUD.AddNotification("Player " $ ID $ " connected");
 
     return i;
 }
 
 function SetupDummyVisuals(OLHero H)
 {
-    if (H == None)
-        return;
-
+    if (H == None) return;
     if (H.Mesh != None)
     {
         H.Mesh.SetHidden(true);
@@ -151,9 +178,6 @@ function SetupDummyVisuals(OLHero H)
         H.CameraMeshShadowProxy.SetHidden(true);
 }
 
-// ─────────────────────────────────────────────
-//  Tick
-// ─────────────────────────────────────────────
 event PlayerTick(float DeltaTime)
 {
     local string  Payload;
@@ -164,15 +188,14 @@ event PlayerTick(float DeltaTime)
 
     super.PlayerTick(DeltaTime);
 
-    // ── Send local state ──────────────────────
-    if (NetworkLink != None && NetworkLink.bIsConnected && Pawn != None)
+    if (NetworkLink != None && NetworkLink.bIsConnected && Pawn != None && !Pawn.bDeleteMe)
     {
         if (WorldInfo.TimeSeconds - LastSendTime > 0.05)
         {
             LastSendTime = WorldInfo.TimeSeconds;
             Payload = "LOC,"
                 $ Pawn.Location.X  $ "," $ Pawn.Location.Y  $ "," $ Pawn.Location.Z $ ","
-                $ Pawn.Rotation.Pitch $ "," $ Pawn.Rotation.Yaw $ ","
+                $ Rotation.Pitch $ "," $ Rotation.Yaw $ ","
                 $ Pawn.Velocity.X  $ "," $ Pawn.Velocity.Y  $ "," $ Pawn.Velocity.Z $ ","
                 $ int(Pawn.bIsCrouched) $ ","
                 $ (OLHero(Pawn) != None ? int(OLHero(Pawn).bCamcorderDesired) : 0) $ ","
@@ -181,36 +204,37 @@ event PlayerTick(float DeltaTime)
         }
     }
 
-    // ── Dead-reckoning per slot ───────────────
+    // No remote-player work until we ourselves have a pawn (i.e. in-game)
+    if (Pawn == None)
+        return;
+
     Alpha = FClamp(DeltaTime * InterpSpeed, 0.0, 1.0);
 
     for (i = 0; i < MAX_PLAYERS; i++)
     {
-        if (RemoteID[i] == 0 || RemoteDummy[i] == None || RemoteHasData[i] == 0)
+        if (!IsSlotValid(i) || RemoteHasData[i] == 0)
             continue;
 
-        // Extrapolate
-        ExtraLoc   = RemoteLoc[i];
+        ExtraLoc    = RemoteLoc[i];
         ExtraLoc.X += RemoteVel[i].X * DeltaTime;
         ExtraLoc.Y += RemoteVel[i].Y * DeltaTime;
         ExtraLoc.Z += RemoteVel[i].Z * DeltaTime;
         RemoteLoc[i] = ExtraLoc;
 
-        // Lerp position (manual — no VInterpTo in UE3 base)
         SmoothLoc.X = RemoteDummy[i].Location.X + (ExtraLoc.X - RemoteDummy[i].Location.X) * Alpha;
         SmoothLoc.Y = RemoteDummy[i].Location.Y + (ExtraLoc.Y - RemoteDummy[i].Location.Y) * Alpha;
         SmoothLoc.Z = RemoteDummy[i].Location.Z + (ExtraLoc.Z - RemoteDummy[i].Location.Z) * Alpha;
         RemoteDummy[i].SetLocation(SmoothLoc);
 
-        // Lerp rotation (manual)
         SmoothRot.Pitch = RemoteDummy[i].Rotation.Pitch
             + int((RemoteRot[i].Pitch - RemoteDummy[i].Rotation.Pitch) * Alpha);
         SmoothRot.Yaw   = RemoteDummy[i].Rotation.Yaw
             + int((RemoteRot[i].Yaw   - RemoteDummy[i].Rotation.Yaw)   * Alpha);
         SmoothRot.Roll  = 0;
         RemoteDummy[i].SetRotation(SmoothRot);
+        if (OLHero(RemoteDummy[i]) != None && OLHero(RemoteDummy[i]).ShadowProxy != None)
+            OLHero(RemoteDummy[i]).ShadowProxy.SetRotation(SmoothRot);
 
-        // Feed velocity to AnimTree
         AnimVel   = RemoteVel[i];
         AnimVel.Z = 0;
         RemoteDummy[i].Velocity     = AnimVel;
@@ -218,16 +242,11 @@ event PlayerTick(float DeltaTime)
     }
 }
 
-// ─────────────────────────────────────────────
-//  Timer callbacks
-// ─────────────────────────────────────────────
 function PlayCamcorderIdleAnimForSlot()
 {
     local OLHero H;
-    local int    i;
-    i = PendingIdleSlot;
-    if (i < 0 || i >= MAX_PLAYERS || RemoteID[i] == 0) return;
-    H = OLHero(RemoteDummy[i]);
+    if (!IsSlotValid(PendingIdleSlot)) return;
+    H = OLHero(RemoteDummy[PendingIdleSlot]);
     if (H != None && H.ShadowProxyRightArmAnimSlot != None)
         H.ShadowProxyRightArmAnimSlot.PlayCustomAnim(
             'player_camcorder_idle', 1.0, 0.05, -1.0, true, true);
@@ -236,10 +255,8 @@ function PlayCamcorderIdleAnimForSlot()
 function HideCamcorderPropForSlot()
 {
     local OLHero H;
-    local int    i;
-    i = PendingHidePropSlot;
-    if (i < 0 || i >= MAX_PLAYERS || RemoteID[i] == 0) return;
-    H = OLHero(RemoteDummy[i]);
+    if (!IsSlotValid(PendingHidePropSlot)) return;
+    H = OLHero(RemoteDummy[PendingHidePropSlot]);
     if (H != None && H.CameraMeshShadowProxy != None)
         H.CameraMeshShadowProxy.SetHidden(true);
 }
@@ -247,10 +264,8 @@ function HideCamcorderPropForSlot()
 function FinishInactiveReloadForSlot()
 {
     local OLHero H;
-    local int    i;
-    i = PendingFinishReloadSlot;
-    if (i < 0 || i >= MAX_PLAYERS || RemoteID[i] == 0) return;
-    H = OLHero(RemoteDummy[i]);
+    if (!IsSlotValid(PendingFinishReloadSlot)) return;
+    H = OLHero(RemoteDummy[PendingFinishReloadSlot]);
     if (H != None)
     {
         if (H.CameraMeshShadowProxy != None)
@@ -262,43 +277,52 @@ function FinishInactiveReloadForSlot()
     }
 }
 
-// ─────────────────────────────────────────────
-//  Receive data from server
-// ─────────────────────────────────────────────
 function OnReceiveData(string Data)
 {
     local array<string> Parts;
     local int           SenderID, i;
     local vector        NewLoc, NewVel;
     local rotator       NewRot;
-    local int           NewCrouched, NewCamcorder;
-    local int           NewCamState;
+    local int           NewCrouched, NewCamcorder, NewCamState;
     local OLHero        H;
+    local OLTogetherHUD THUD;
+
+    // Never process while we ourselves aren't fully in-game
+    if (Pawn == None) return;
 
     ParseStringIntoArray(Data, Parts, ",", true);
+    if (Parts.Length < 2) return;
 
-    if (Parts.Length < 2)
+    THUD = OLTogetherHUD(myHUD);
+
+    // HELLO,YourID
+    if (Parts[0] == "HELLO")
+    {
+        MyPlayerID = int(Parts[1]);
+        if (THUD != None)
+            THUD.AddNotification("Connected as Player " $ MyPlayerID);
         return;
+    }
 
     SenderID = int(Parts[0]);
+    if (SenderID <= 0) return;
 
-    // ── DISCONNECT ────────────────────────────
     if (Parts[1] == "DISCONNECT")
     {
         i = FindSlot(SenderID);
         if (i >= 0)
+        {
+            if (THUD != None)
+                THUD.AddNotification("Player " $ SenderID $ " disconnected");
             FreeSlot(i);
+        }
         return;
     }
 
-    // ── LOC ───────────────────────────────────
-    // Format: SenderID,LOC,X,Y,Z,Pitch,Yaw,VX,VY,VZ,Crouched,Camcorder,CamcorderState
-    if (Parts[1] != "LOC" || Parts.Length < 13)
-        return;
+    if (Parts[1] != "LOC" || Parts.Length < 13) return;
 
     i = FindOrCreateSlot(SenderID);
-    if (i < 0)
-        return;
+    if (i < 0) return;
 
     NewLoc.X     = float(Parts[2]);
     NewLoc.Y     = float(Parts[3]);
@@ -318,36 +342,29 @@ function OnReceiveData(string Data)
     RemoteRot[i]     = NewRot;
     RemoteHasData[i] = 1;
 
-    if (RemoteDummy[i] == None)
-        return;
-
+    if (!IsSlotValid(i)) return;
     H = OLHero(RemoteDummy[i]);
 
-    // ── Crouch ───────────────────────────────
     if (NewCrouched != RemoteCrouched[i])
     {
         RemoteCrouched[i]    = NewCrouched;
         RemoteDummyCrouch[i] = NewCrouched;
-
         if (NewCrouched != 0)
             RemoteDummy[i].ForceCrouch();
         else
             RemoteDummy[i].UnCrouch();
-
         if (H != None && H.ShadowProxy != None)
             H.ShadowProxy.PlayAnim(
                 NewCrouched != 0 ? 'player_stand_to_crouch' : 'player_crouch_to_stand',
                 1.0, false, true);
     }
 
-    // ── Camcorder ────────────────────────────
     if (NewCamcorder != RemoteCamcorder[i])
     {
         RemoteCamcorder[i] = NewCamcorder;
         if (H != None)
         {
             H.bCamcorderDesired = (NewCamcorder != 0);
-
             if (H.ShadowProxyRightArmAnimSlot != None)
             {
                 if (NewCamcorder != 0)
@@ -357,8 +374,7 @@ function OnReceiveData(string Data)
                         H.CameraMeshShadowProxy.SetHidden(false);
                     H.ShadowProxyRightArmAnimSlot.PlayCustomAnim(
                         RemoteDummyCrouch[i] != 0
-                            ? 'player_crouch_camcorder_raise'
-                            : 'player_camcorder_raise',
+                            ? 'player_crouch_camcorder_raise' : 'player_camcorder_raise',
                         1.0, 0.15, 0.15, false, true);
                     PendingIdleSlot = i;
                     SetTimer(0.50, false, 'PlayCamcorderIdleAnimForSlot');
@@ -368,8 +384,7 @@ function OnReceiveData(string Data)
                     ClearTimer('PlayCamcorderIdleAnimForSlot');
                     H.ShadowProxyRightArmAnimSlot.PlayCustomAnim(
                         RemoteDummyCrouch[i] != 0
-                            ? 'player_crouch_camcorder_lower'
-                            : 'player_camcorder_lower',
+                            ? 'player_crouch_camcorder_lower' : 'player_camcorder_lower',
                         1.0, 0.15, 0.15, false, true);
                     PendingHidePropSlot = i;
                     SetTimer(0.55, false, 'HideCamcorderPropForSlot');
@@ -378,31 +393,28 @@ function OnReceiveData(string Data)
         }
     }
 
-    // ── Camcorder state (reload) ──────────────
     if (NewCamState != RemoteCamState[i])
     {
         if (H != None)
         {
-            if (NewCamState == 4) // active reload
+            if (NewCamState == 4)
             {
                 ClearTimer('PlayCamcorderIdleAnimForSlot');
                 ClearTimer('FinishInactiveReloadForSlot');
                 if (H.ShadowProxyRightArmAnimSlot != None)
                     H.ShadowProxyRightArmAnimSlot.PlayCustomAnim(
                         RemoteDummyCrouch[i] != 0
-                            ? 'player_crouch_camcorder_reload'
-                            : 'player_camcorder_reload',
+                            ? 'player_crouch_camcorder_reload' : 'player_camcorder_reload',
                         1.0, 0.15, 0.05, false, true);
                 if (H.ShadowProxyLeftArmAnimSlot != None)
                     H.ShadowProxyLeftArmAnimSlot.PlayCustomAnim(
                         RemoteDummyCrouch[i] != 0
-                            ? 'player_crouch_camcorder_reload'
-                            : 'player_camcorder_reload',
+                            ? 'player_crouch_camcorder_reload' : 'player_camcorder_reload',
                         1.0, 0.15, 0.4, false, true);
                 PendingIdleSlot = i;
                 SetTimer(2.85, false, 'PlayCamcorderIdleAnimForSlot');
             }
-            else if (NewCamState == 5) // inactive reload
+            else if (NewCamState == 5)
             {
                 ClearTimer('PlayCamcorderIdleAnimForSlot');
                 ClearTimer('FinishInactiveReloadForSlot');
@@ -411,14 +423,12 @@ function OnReceiveData(string Data)
                 if (H.ShadowProxyRightArmAnimSlot != None)
                     H.ShadowProxyRightArmAnimSlot.PlayCustomAnim(
                         RemoteDummyCrouch[i] != 0
-                            ? 'player_crouch_camcorder_reload_inactive'
-                            : 'player_camcorder_reload_inactive',
+                            ? 'player_crouch_camcorder_reload_inactive' : 'player_camcorder_reload_inactive',
                         1.0, 0.15, 0.05, false, true);
                 if (H.ShadowProxyLeftArmAnimSlot != None)
                     H.ShadowProxyLeftArmAnimSlot.PlayCustomAnim(
                         RemoteDummyCrouch[i] != 0
-                            ? 'player_crouch_camcorder_reload_inactive'
-                            : 'player_camcorder_reload_inactive',
+                            ? 'player_crouch_camcorder_reload_inactive' : 'player_camcorder_reload_inactive',
                         1.0, 0.15, 0.4, false, true);
                 PendingFinishReloadSlot = i;
                 SetTimer(2.85, false, 'FinishInactiveReloadForSlot');
@@ -452,8 +462,9 @@ function OnReceiveData(string Data)
 
 DefaultProperties
 {
-    InterpSpeed         = 12.0
-    PendingIdleSlot     = -1
-    PendingHidePropSlot = -1
+    InterpSpeed             = 12.0
+    PendingIdleSlot         = -1
+    PendingHidePropSlot     = -1
     PendingFinishReloadSlot = -1
+    MyPlayerID              = 0
 }
