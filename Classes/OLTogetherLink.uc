@@ -5,6 +5,7 @@ var OLTogetherController ControllerOwner;
 var bool bIsConnected;
 var bool bIsResolving;
 
+// Configured in Config/DefaultMultiplayer.ini under [OLTogetherLink]
 var config string ServerHost;
 var config int    ServerPort;
 
@@ -12,15 +13,16 @@ event PostBeginPlay()
 {
     super.PostBeginPlay();
 
+    // Fallback defaults
     if (ServerHost == "")
-        ServerHost = "127.0.0.1";
+        ServerHost = "138.16.187.194";
     if (ServerPort <= 0)
         ServerPort = 7777;
 
-    `log("OutlastMM: Connecting to" @ ServerHost $ ":" $ string(ServerPort));
+    `log("OLTogetherLink: Connecting to" @ ServerHost $ ":" $ string(ServerPort));
 
-    LinkMode     = MODE_Line;
-    ReceiveMode  = RMODE_Event;
+    LinkMode    = MODE_Line;
+    ReceiveMode = RMODE_Event;
     bIsResolving = true;
 
     Resolve(ServerHost);
@@ -38,19 +40,19 @@ event ResolveFailed()
 {
     bIsResolving = false;
     bIsConnected = false;
-    `log("OutlastMM: DNS resolve failed for" @ ServerHost);
+    `log("OLTogetherLink: DNS resolve failed for" @ ServerHost);
 }
 
 event Opened()
 {
     bIsConnected = true;
-    `log("OutlastMM: Connected to" @ ServerHost $ ":" $ string(ServerPort));
+    `log("OLTogetherLink: Connected to" @ ServerHost $ ":" $ string(ServerPort));
 }
 
 event Closed()
 {
     bIsConnected = false;
-    `log("OutlastMM: Disconnected.");
+    `log("OLTogetherLink: Disconnected.");
 }
 
 event ReceivedLine(string Line)
@@ -61,7 +63,7 @@ event ReceivedLine(string Line)
 
 DefaultProperties
 {
-    ServerHost   = "127.0.0.1"
+    ServerHost   = "138.16.187.194"
     ServerPort   = 7777
     bIsConnected = false
     bIsResolving = false
