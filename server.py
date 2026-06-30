@@ -61,8 +61,12 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             line = await reader.readline()
             if not line:
                 break
-            # Forward as: SenderID,LOC,x,y,...
-            await broadcast(writer, f"{player_id},".encode() + line)
+            if line.startswith(b'PING,'):
+                writer.write(b'PONG,' + line[5:])
+                await writer.drain()
+            else:
+                # Forward as: SenderID,LOC,x,y,...
+                await broadcast(writer, f"{player_id},".encode() + line)
     except (asyncio.IncompleteReadError, ConnectionResetError):
         pass
     finally:

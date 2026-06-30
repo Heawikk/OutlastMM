@@ -18,10 +18,14 @@ var int     RemoteCrouched    [8];
 var int     RemoteCamcorder   [8];
 var int     RemoteCamState    [8];
 var int     RemoteDummyCrouch [8];
+var int     RemoteAirborne    [8];
 
-var int PendingIdleSlot;
-var int PendingHidePropSlot;
-var int PendingFinishReloadSlot;
+var int   PendingIdleSlot;
+var int   PendingHidePropSlot;
+var int   PendingFinishReloadSlot;
+var int   PendingCrouchIdleSlot;
+var float LastPingSentTime;
+var int   PingMs;
 
 // ─────────────────────────────────────────────
 //  Validate slot — the single safe-guard used everywhere.
@@ -73,6 +77,8 @@ event PostBeginPlay()
     NetworkLink = Spawn(class'OLTogetherLink', self);
     if (NetworkLink != None)
         NetworkLink.ControllerOwner = self;
+
+    SetTimer(1.0, true, 'SendPing');
 }
 
 function ClearSlotData(int i)
@@ -84,6 +90,7 @@ function ClearSlotData(int i)
     RemoteCamcorder[i]   = 0;
     RemoteCamState[i]    = 0;
     RemoteDummyCrouch[i] = 0;
+    RemoteAirborne[i]    = 0;
     RemoteLoc[i]         = vect(0,0,0);
     RemoteVel[i]         = vect(0,0,0);
     RemoteRot[i]         = rot(0,0,0);
@@ -217,7 +224,8 @@ event PlayerTick(float DeltaTime)
                 $ Pawn.Velocity.X  $ "," $ Pawn.Velocity.Y  $ "," $ Pawn.Velocity.Z $ ","
                 $ int(Pawn.bIsCrouched) $ ","
                 $ (OLHero(Pawn) != None ? int(OLHero(Pawn).bCamcorderDesired) : 0) $ ","
-                $ (OLHero(Pawn) != None ? int(OLHero(Pawn).CamcorderState)    : 0);
+                $ (OLHero(Pawn) != None ? int(OLHero(Pawn).CamcorderState)    : 0) $ ","
+                $ (Pawn.Physics == PHYS_Falling ? 1 : 0);
             NetworkLink.SendText(Payload $ "\n");
         }
     }
@@ -261,6 +269,22 @@ event PlayerTick(float DeltaTime)
     }
 }
 
+function SendPing()
+{
+    if (NetworkLink == None || !NetworkLink.bIsConnected) return;
+    LastPingSentTime = WorldInfo.TimeSeconds;
+    NetworkLink.SendText("PING,1\n");
+}
+
+function PlayCrouchIdleForSlot()
+{
+    local OLHero H;
+    if (!IsSlotValid(PendingCrouchIdleSlot)) return;
+    H = OLHero(RemoteDummy[PendingCrouchIdleSlot]);
+    if (H != None && H.ShadowProxy != None)
+        H.ShadowProxy.PlayAnim('player_crouch_idle', 0.0, true, true);
+}
+
 function PlayCamcorderIdleAnimForSlot()
 {
     local OLHero H;
@@ -302,7 +326,7 @@ function OnReceiveData(string Data)
     local int           SenderID, i;
     local vector        NewLoc, NewVel;
     local rotator       NewRot;
-    local int           NewCrouched, NewCamcorder, NewCamState;
+    local int           NewCrouched, NewCamcorder, NewCamState, NewAirborne;
     local OLHero        H;
     local OLTogetherHUD THUD;
 
@@ -313,6 +337,13 @@ function OnReceiveData(string Data)
     if (Parts.Length < 2) return;
 
     THUD = OLTogetherHUD(myHUD);
+
+    if (Parts[0] == "PONG")
+    {
+        if (LastPingSentTime > 0.0)
+            PingMs = int((WorldInfo.TimeSeconds - LastPingSentTime) * 1000.0);
+        return;
+    }
 
     // HELLO,YourID
     if (Parts[0] == "HELLO")
@@ -338,7 +369,7 @@ function OnReceiveData(string Data)
         return;
     }
 
-    if (Parts[1] != "LOC" || Parts.Length < 13) return;
+    if (Parts[1] != "LOC" || Parts.Length < 14) return;
 
     i = FindOrCreateSlot(SenderID);
     if (i < 0) return;
@@ -355,6 +386,7 @@ function OnReceiveData(string Data)
     NewCrouched  = int(Parts[10]);
     NewCamcorder = int(Parts[11]);
     NewCamState  = int(Parts[12]);
+    NewAirborne  = int(Parts[13]);
 
     RemoteLoc[i]     = NewLoc;
     RemoteVel[i]     = NewVel;
@@ -375,7 +407,13 @@ function OnReceiveData(string Data)
         if (H != None && H.ShadowProxy != None)
             H.ShadowProxy.PlayAnim(
                 NewCrouched != 0 ? 'player_stand_to_crouch' : 'player_crouch_to_stand',
-                1.0, false, true);
+                0.0, false, true);
+        ClearTimer('PlayCrouchIdleForSlot');
+        if (NewCrouched != 0)
+        {
+            PendingCrouchIdleSlot = i;
+            SetTimer(0.5, false, 'PlayCrouchIdleForSlot');
+        }
     }
 
     if (NewCamcorder != RemoteCamcorder[i])
@@ -477,6 +515,18 @@ function OnReceiveData(string Data)
         }
         RemoteCamState[i] = NewCamState;
     }
+
+    if (NewAirborne != RemoteAirborne[i])
+    {
+        RemoteAirborne[i] = NewAirborne;
+        if (H != None && H.ShadowProxy != None)
+        {
+            if (NewAirborne != 0)
+                H.ShadowProxy.PlayAnim('player_jump', 0.0, true, true);
+            else
+                H.ShadowProxy.PlayAnim('player_land', 0.0, false, true);
+        }
+    }
 }
 
 DefaultProperties
@@ -485,5 +535,8 @@ DefaultProperties
     PendingIdleSlot         = -1
     PendingHidePropSlot     = -1
     PendingFinishReloadSlot = -1
+    PendingCrouchIdleSlot   = -1
     MyPlayerID              = 0
+    LastPingSentTime        = 0.0
+    PingMs                  = 0
 }

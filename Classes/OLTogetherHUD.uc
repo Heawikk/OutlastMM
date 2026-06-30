@@ -117,7 +117,10 @@ event DrawHUD()
         }
         else
         {
-            StatusText = "OutlastMM  [You + " $ string(CountRemotePlayers()) $ " online]";
+            StatusText = "OutlastMM  [You + " $ string(CountRemotePlayers()) $ " online]"
+                $ (TogetherController.PingMs > 0
+                    ? "  " $ string(TogetherController.PingMs) $ " ms"
+                    : "");
             R = 80; G = 200; B = 80;
         }
     }
