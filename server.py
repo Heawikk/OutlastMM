@@ -1,6 +1,8 @@
 """
-OLTogether relay server — broadcasts each client's packets to all others,
-prefixed with a unique player ID so the UE3 client knows whose update it is.
+OLTogether relay server.
+- Sends HELLO,<id> to each client when they connect so they know their own ID.
+- Broadcasts each client's LOC packets to all others as <id>,LOC,...
+- Broadcasts DISCONNECT,<id> when a client leaves.
 """
 
 import asyncio
@@ -24,10 +26,10 @@ async def broadcast(sender: asyncio.StreamWriter, data: bytes) -> None:
         except Exception:
             dead.append(writer)
     for w in dead:
-        await remove_client(w)
+        await _remove_client(w)
 
 
-async def remove_client(writer: asyncio.StreamWriter) -> None:
+async def _remove_client(writer: asyncio.StreamWriter) -> None:
     player_id = clients.pop(writer, None)
     if player_id is None:
         return
@@ -37,7 +39,6 @@ async def remove_client(writer: asyncio.StreamWriter) -> None:
     except Exception:
         pass
     print(f"[-] Player {player_id} removed")
-    # Tell everyone this player left so they destroy the dummy pawn immediately
     await broadcast(writer, f"{player_id},DISCONNECT\n".encode())
 
 
@@ -47,17 +48,25 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     clients[writer] = player_id
     print(f"[+] Player {player_id} connected from {addr}")
 
+    # Tell this client their own ID immediately
+    try:
+        writer.write(f"HELLO,{player_id}\n".encode())
+        await writer.drain()
+    except Exception:
+        await _remove_client(writer)
+        return
+
     try:
         while True:
             line = await reader.readline()
             if not line:
                 break
-            # Forward as: SenderID,LOC,x,y,z,...
+            # Forward as: SenderID,LOC,x,y,...
             await broadcast(writer, f"{player_id},".encode() + line)
     except (asyncio.IncompleteReadError, ConnectionResetError):
         pass
     finally:
-        await remove_client(writer)
+        await _remove_client(writer)
 
 
 async def main() -> None:
