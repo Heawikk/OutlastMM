@@ -19,6 +19,7 @@ var int     RemoteCamcorder   [8];
 var int     RemoteCamState    [8];
 var int     RemoteDummyCrouch [8];
 var int     RemoteAirborne    [8];
+var name    RemoteCrouchAnim  [8];
 
 var int   PendingIdleSlot;
 var int   PendingHidePropSlot;
@@ -91,6 +92,7 @@ function ClearSlotData(int i)
     RemoteCamState[i]    = 0;
     RemoteDummyCrouch[i] = 0;
     RemoteAirborne[i]    = 0;
+    RemoteCrouchAnim[i]  = '';
     RemoteLoc[i]         = vect(0,0,0);
     RemoteVel[i]         = vect(0,0,0);
     RemoteRot[i]         = rot(0,0,0);
@@ -166,6 +168,9 @@ function int FindOrCreateSlot(int ID)
         AIC = Spawn(class'AIController');
         if (AIC != None)
             AIC.Possess(RemoteDummy[i], false);
+
+        if (OLHero(RemoteDummy[i]) != None)
+            OLHero(RemoteDummy[i]).LocomotionMode = LM_Walk;
 
         SetupDummyVisuals(OLHero(RemoteDummy[i]));
     }
@@ -266,6 +271,56 @@ event PlayerTick(float DeltaTime)
         AnimVel.Z = 0;
         RemoteDummy[i].Velocity     = AnimVel;
         RemoteDummy[i].Acceleration = AnimVel;
+
+        if (RemoteAirborne[i] == 0 && OLHero(RemoteDummy[i]) != None)
+        {
+            OLHero(RemoteDummy[i]).LocomotionMode = LM_Walk;
+            if (RemoteCrouched[i] != 0)
+                UpdateCrouchAnim(i, AnimVel);
+        }
+    }
+}
+
+function UpdateCrouchAnim(int Idx, vector AnimVel2D)
+{
+    local OLHero      DH;
+    local float       Speed, YawRad, ForwardDot, RightDot;
+    local vector      Forward, Right, NormVel;
+    local name        DesiredAnim;
+
+    DH = OLHero(RemoteDummy[Idx]);
+    if (DH == None || DH.ShadowProxy == None) return;
+
+    Speed = VSize(AnimVel2D);
+
+    if (Speed < 20.0)
+    {
+        DesiredAnim = 'player_crouch_idle';
+    }
+    else
+    {
+        // UDK rotator: full circle = 65536 units → radians = Yaw * (π / 32768)
+        YawRad    = RemoteDummy[Idx].Rotation.Yaw * (3.14159265 / 32768.0);
+        Forward.X = Cos(YawRad);
+        Forward.Y = Sin(YawRad);
+        Forward.Z = 0;
+        Right.X   = Cos(YawRad + 1.5707963);
+        Right.Y   = Sin(YawRad + 1.5707963);
+        Right.Z   = 0;
+        NormVel   = AnimVel2D / Speed;
+        ForwardDot = (NormVel.X * Forward.X) + (NormVel.Y * Forward.Y);
+        RightDot   = (NormVel.X * Right.X)   + (NormVel.Y * Right.Y);
+
+        if      (ForwardDot >  0.7) DesiredAnim = 'player_crouch_forward';
+        else if (ForwardDot < -0.7) DesiredAnim = 'player_crouch_backward';
+        else if (RightDot   >  0.0) DesiredAnim = 'player_crouch_strafe_right';
+        else                        DesiredAnim = 'player_crouch_strafe_left';
+    }
+
+    if (DesiredAnim != RemoteCrouchAnim[Idx])
+    {
+        RemoteCrouchAnim[Idx] = DesiredAnim;
+        DH.ShadowProxy.PlayAnim(DesiredAnim, 0.0, true, true);
     }
 }
 
@@ -400,19 +455,24 @@ function OnReceiveData(string Data)
     {
         RemoteCrouched[i]    = NewCrouched;
         RemoteDummyCrouch[i] = NewCrouched;
-        if (NewCrouched != 0)
-            RemoteDummy[i].ForceCrouch();
-        else
-            RemoteDummy[i].UnCrouch();
-        if (H != None && H.ShadowProxy != None)
-            H.ShadowProxy.PlayAnim(
-                NewCrouched != 0 ? 'player_stand_to_crouch' : 'player_crouch_to_stand',
-                0.0, false, true);
+        RemoteCrouchAnim[i]  = '';
         ClearTimer('PlayCrouchIdleForSlot');
-        if (NewCrouched != 0)
+        if (H != None)
         {
-            PendingCrouchIdleSlot = i;
-            SetTimer(0.5, false, 'PlayCrouchIdleForSlot');
+            if (NewCrouched != 0)
+                H.StartSpecialMove(SMT_Crouch);
+            else
+                H.StartSpecialMove(SMT_Uncrouch);
+            H.SpecialMove                    = SMT_None;
+            H.bPlayingSpecialMoveAnim        = false;
+            H.bDelayedSpecialMoveAnim        = false;
+            H.bPendingSpecialMoveAnims       = false;
+            H.PlayingSpecialMoveAnims.Length = 0;
+            H.LocomotionMode                 = LM_Walk;
+            if (H.ShadowProxy != None)
+                H.ShadowProxy.PlayAnim(
+                    NewCrouched != 0 ? 'player_stand_to_crouch' : 'player_crouch_to_stand',
+                    0.0, false, true);
         }
     }
 
