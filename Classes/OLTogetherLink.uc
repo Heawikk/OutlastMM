@@ -1,48 +1,68 @@
 class OLTogetherLink extends TcpLink
-config(Multiplayer)
+    config(Multiplayer);
 
 var OLTogetherController ControllerOwner;
 var bool bIsConnected;
-var config string IP;
-var config string Port;
+var bool bIsResolving;
+
+var config string ServerHost;
+var config int    ServerPort;
 
 event PostBeginPlay()
 {
     super.PostBeginPlay();
-    LinkMode = MODE_Line;
-    ReceiveMode = RMODE_Event;
-    Resolve(IP);
+
+    if (ServerHost == "")
+        ServerHost = "127.0.0.1";
+    if (ServerPort <= 0)
+        ServerPort = 7777;
+
+    `log("OLTogetherLink: Connecting to" @ ServerHost $ ":" $ string(ServerPort));
+
+    LinkMode     = MODE_Line;
+    ReceiveMode  = RMODE_Event;
+    bIsResolving = true;
+
+    Resolve(ServerHost);
 }
 
 event Resolved(IpAddr Addr)
 {
-    Addr.Port = Port;
+    bIsResolving = false;
+    Addr.Port    = ServerPort;
     BindPort();
     Open(Addr);
+}
+
+event ResolveFailed()
+{
+    bIsResolving = false;
+    bIsConnected = false;
+    `log("OLTogetherLink: DNS resolve failed for" @ ServerHost);
 }
 
 event Opened()
 {
     bIsConnected = true;
-    `log("OLTogetherLink Connected to Server!");
+    `log("OLTogetherLink: Connected to" @ ServerHost $ ":" $ string(ServerPort));
 }
 
 event Closed()
 {
     bIsConnected = false;
-    `log("OLTogetherLink Disconnected.");
+    `log("OLTogetherLink: Disconnected.");
 }
 
 event ReceivedLine(string Line)
 {
     if (ControllerOwner != None)
-    {
         ControllerOwner.OnReceiveData(Line);
-    }
 }
 
 DefaultProperties
 {
-    IP="127.0.0.1"
-    Port="7777"
+    ServerHost   = "127.0.0.1"
+    ServerPort   = 7777
+    bIsConnected = false
+    bIsResolving = false
 }

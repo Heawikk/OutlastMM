@@ -1,44 +1,71 @@
-import asyncio
+"""
+OLTogether relay server — broadcasts each client's packets to all others,
+prefixed with a unique player ID so the UE3 client knows whose update it is.
+"""
 
-HOST = "127.0.0.1"
+import asyncio
+import itertools
+
+HOST = "0.0.0.0"
 PORT = 7777
 
-clients = set()
+clients: dict[asyncio.StreamWriter, int] = {}
+id_counter = itertools.count(1)
 
-async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-    addr = writer.get_extra_info("peername")
-    print(f"Outlast Client Connected from {addr}")
-    clients.add(writer)
-    
+
+async def broadcast(sender: asyncio.StreamWriter, data: bytes) -> None:
+    dead = []
+    for writer in list(clients):
+        if writer is sender:
+            continue
+        try:
+            writer.write(data)
+            await writer.drain()
+        except Exception:
+            dead.append(writer)
+    for w in dead:
+        await remove_client(w)
+
+
+async def remove_client(writer: asyncio.StreamWriter) -> None:
+    player_id = clients.pop(writer, None)
+    if player_id is None:
+        return
     try:
-        while True:
-            data = await reader.read(1024)
-            if not data:
-                print(f"[{addr}] Disconnected")
-                break
-            
-            # Broadcast to all OTHER clients
-            for client in clients:
-                if client != writer:
-                    try:
-                        client.write(data)
-                        await client.drain()
-                    except Exception as e:
-                        pass
-    except asyncio.IncompleteReadError:
-        pass
-    except ConnectionResetError:
-        print(f"[{addr}] Connection reset by client")
-    finally:
-        clients.remove(writer)
         writer.close()
         await writer.wait_closed()
+    except Exception:
+        pass
+    print(f"[-] Player {player_id} removed")
+    # Tell everyone this player left so they destroy the dummy pawn immediately
+    await broadcast(writer, f"{player_id},DISCONNECT\n".encode())
 
-async def main():
+
+async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    addr      = writer.get_extra_info("peername")
+    player_id = next(id_counter)
+    clients[writer] = player_id
+    print(f"[+] Player {player_id} connected from {addr}")
+
+    try:
+        while True:
+            line = await reader.readline()
+            if not line:
+                break
+            # Forward as: SenderID,LOC,x,y,z,...
+            await broadcast(writer, f"{player_id},".encode() + line)
+    except (asyncio.IncompleteReadError, ConnectionResetError):
+        pass
+    finally:
+        await remove_client(writer)
+
+
+async def main() -> None:
     server = await asyncio.start_server(handle_client, HOST, PORT)
-    print(f"[server] Listening on {HOST}:{PORT}")
+    print(f"[server] OLTogether relay listening on {HOST}:{PORT}")
     async with server:
         await server.serve_forever()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
