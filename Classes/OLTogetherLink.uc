@@ -1,15 +1,12 @@
-class OLTogetherLink extends TcpLink;
+class OLTogetherLink extends TcpLink
+    config(Multiplayer);
 
 var OLTogetherController ControllerOwner;
 var bool bIsConnected;
 var bool bIsResolving;
 
-// Config-based ini loading was unreliable in this build (custom package
-// .ini category never got picked up by the engine), so the server address
-// is hardcoded here instead. Edit these two lines directly and recompile
-// to change the server.
-var string ServerHost;
-var int    ServerPort;
+var config string ServerHost;
+var config int    ServerPort;
 
 event PostBeginPlay()
 {
@@ -77,7 +74,7 @@ event ReceivedLine(string Line)
 
 DefaultProperties
 {
-    ServerHost   = "138.16.187.194"
+    ServerHost   = "127.0.0.1"
     ServerPort   = 7777
     bIsConnected = false
     bIsResolving = false
