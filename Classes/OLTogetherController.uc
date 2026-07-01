@@ -19,15 +19,17 @@ struct RemotePlayerState
     var rotator LastReceivedRot;
     var bool    bHasReceivedData;
 
-    var bool bLastRemoteCrouched;
-    var bool bLastRemoteCamcorder;
-    var int  LastRemoteCamcorderState;
-    var bool bDummyCrouched;
-    var int  LastAirborne;
-    var name LastCrouchAnim;
+    var bool   bLastRemoteCrouched;
+    var bool   bLastRemoteCamcorder;
+    var int    LastRemoteCamcorderState;
+    var bool   bDummyCrouched;
+    var int    LastAirborne;
+    var name   LastCrouchAnim;
+    var string Nickname;
 };
 var array<RemotePlayerState> RemotePlayers;
-var Pawn LastSeenPawn;
+var Pawn   LastSeenPawn;
+var string MyNickname;
 
 
 
@@ -102,7 +104,7 @@ event PlayerTick(float DeltaTime)
     // --- Deferred dummy spawn (PlayerTick guarantees Pawn exists) ---
     for (i = 0; i < RemotePlayers.Length; i++)
     {
-        if (RemotePlayers[i].DummyPlayer != None || Pawn == None)
+        if (RemotePlayers[i].DummyPlayer != None || Pawn == None || !RemotePlayers[i].bHasReceivedData)
             continue;
 
         RemotePlayers[i].DummyPlayer = Spawn(class'OLTogetherHero',,, Pawn.Location, Pawn.Rotation,, true);
@@ -310,7 +312,8 @@ function OnReceiveData(string Data)
     local rotator NewRot;
     local bool bNewCrouched, bNewCamcorder;
     local int NewCamcorderState, NewAirborne;
-    local int SenderID, Idx;
+    local int    SenderID, Idx;
+    local string Nick;
     local OLHero DH;
     local RemotePlayerState NewState;
     local OLTogetherHUD THUD;
@@ -332,8 +335,10 @@ function OnReceiveData(string Data)
     if (Parts[0] == "HELLO")
     {
         MyPlayerID = int(Parts[1]);
-        if (THUD != None)
-            THUD.AddNotification("Connected as Player " $ MyPlayerID);
+        Nick = (NetworkLink != None) ? NetworkLink.PlayerNickname : "";
+        if (Nick == "")
+            Nick = "Player " $ MyPlayerID;
+        NetworkLink.SendText("NICK," $ Nick $ "\n");
         return;
     }
 
@@ -342,9 +347,53 @@ function OnReceiveData(string Data)
 
     if (Parts[1] == "DISCONNECT")
     {
+        Idx = FindRemoteIndex(SenderID);
+        Nick = (Idx != -1 && RemotePlayers[Idx].Nickname != "") ? RemotePlayers[Idx].Nickname : ("Player " $ SenderID);
         if (THUD != None)
-            THUD.AddNotification("Player " $ SenderID $ " disconnected");
+            THUD.AddNotification(Nick $ " disconnected");
         RemoveRemotePlayer(SenderID);
+        return;
+    }
+
+    if (Parts[1] == "NICK")
+    {
+        if (Parts.Length >= 3)
+        {
+            if (SenderID == MyPlayerID)
+            {
+                MyNickname = Parts[2];
+                if (THUD != None)
+                    THUD.AddNotification("Connected as " $ MyNickname);
+            }
+            else
+            {
+                Idx = FindRemoteIndex(SenderID);
+                if (Idx == -1)
+                {
+                    NewState.PlayerID                 = SenderID;
+                    NewState.Nickname                 = Parts[2];
+                    NewState.bHasReceivedData         = false;
+                    NewState.bLastRemoteCamcorder     = false;
+                    NewState.bLastRemoteCrouched      = false;
+                    NewState.LastRemoteCamcorderState = 0;
+                    NewState.LastAirborne             = 0;
+                    NewState.LastCrouchAnim           = '';
+                    NewState.TimerHelper = Spawn(class'OLTogetherRemoteTimer', self);
+                    if (NewState.TimerHelper != None)
+                    {
+                        NewState.TimerHelper.ControllerOwner = self;
+                        NewState.TimerHelper.PlayerID        = SenderID;
+                    }
+                    RemotePlayers.AddItem(NewState);
+                    if (THUD != None)
+                        THUD.AddNotification(Parts[2] $ " connected");
+                }
+                else
+                {
+                    RemotePlayers[Idx].Nickname = Parts[2];
+                }
+            }
+        }
         return;
     }
 

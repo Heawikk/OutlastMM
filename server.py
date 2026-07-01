@@ -28,7 +28,7 @@ _WHT = "\033[97m"
 _BCY = "\033[96m"
 
 _ANSI = re.compile(r'\033\[[0-9;]*m')
-_W    = 56  # total box width including borders
+_W    = 60  # total box width including borders
 
 
 def _vis(s: str) -> int:
@@ -52,6 +52,24 @@ def _row(content: str) -> str:
     return f"{_BCY}│{_RST} {content}{' ' * max(0, pad)} {_BCY}│{_RST}"
 
 
+def _resolve_nick(player_id: int, desired: str) -> str:
+    """Return desired nick, suffixing _2/_3/... if already taken by another player."""
+    if not desired or not desired.strip():
+        return f"Player {player_id}"
+    desired = desired.strip()[:24]  # cap length
+
+    used = {info["nick"] for w, info in clients.items() if info["id"] != player_id}
+    if desired not in used:
+        return desired
+
+    n = 2
+    while True:
+        candidate = f"{desired}_{n}"
+        if candidate not in used:
+            return candidate
+        n += 1
+
+
 def _draw() -> None:
     inner = _W - 2
     out   = ["\033[H\033[J"]
@@ -69,13 +87,14 @@ def _draw() -> None:
     out.append(_row(f"{_CYN}Port{_RST}          {_WHT}{PORT}{_RST}"))
 
     out.append(f"{_BCY}├{'─' * inner}┤{_RST}")
-    out.append(_row(f"{_BLD}{'Player':<12}{'Address':<24}Since{_RST}"))
+    out.append(_row(f"{_BLD}{'Nick':<18}{'Address':<22}Since{_RST}"))
     out.append(_row(f"{_DIM}{'─' * (inner - 4)}{_RST}"))
 
     if clients:
         for info in clients.values():
-            line = (f"{_YLW}Player {info['id']:<4}{_RST}"
-                    f"{_CYN}{info['addr']:<24}{_RST}"
+            nick = info.get("nick") or f"Player {info['id']}"
+            line = (f"{_YLW}{nick:<18}{_RST}"
+                    f"{_CYN}{info['addr']:<22}{_RST}"
                     f"{_DIM}{info['since']}{_RST}")
             out.append(_row(line))
     else:
@@ -116,6 +135,18 @@ async def broadcast(sender, data: bytes) -> None:
         await _remove_client(w)
 
 
+async def broadcast_all(data: bytes) -> None:
+    dead = []
+    for writer in list(clients):
+        try:
+            writer.write(data)
+            await writer.drain()
+        except Exception:
+            dead.append(writer)
+    for w in dead:
+        await _remove_client(w)
+
+
 async def _remove_client(writer) -> None:
     info = clients.pop(writer, None)
     if info is None:
@@ -125,8 +156,9 @@ async def _remove_client(writer) -> None:
         await writer.wait_closed()
     except Exception:
         pass
-    pid = info["id"]
-    _log(f"{_RED}[-]{_RST} Player {pid} disconnected  ({info['addr']})")
+    pid  = info["id"]
+    nick = info.get("nick") or f"Player {pid}"
+    _log(f"{_RED}[-]{_RST} {nick} disconnected  ({info['addr']})")
     await broadcast(writer, f"{pid},DISCONNECT\n".encode())
 
 
@@ -138,11 +170,17 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         "id":    player_id,
         "addr":  addr,
         "since": datetime.now().strftime("%H:%M:%S"),
+        "nick":  None,
     }
     _log(f"{_GRN}[+]{_RST} Player {player_id} connected from {addr}")
 
     try:
         writer.write(f"HELLO,{player_id}\n".encode())
+        for w, info in list(clients.items()):
+            if w is writer:
+                continue
+            if info.get("nick"):
+                writer.write(f"{info['id']},NICK,{info['nick']}\n".encode())
         await writer.drain()
     except Exception:
         await _remove_client(writer)
@@ -153,11 +191,24 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             line = await reader.readline()
             if not line:
                 break
-            if line.startswith(b"PING,"):
+
+            text = line.decode(errors="replace").rstrip("\r\n")
+
+            if text.startswith("PING,"):
                 writer.write(b"PONG," + line[5:])
                 await writer.drain()
+
+            elif text.startswith("NICK,"):
+                desired  = text[5:]
+                resolved = _resolve_nick(player_id, desired)
+                clients[writer]["nick"] = resolved
+                nick_line = f"{player_id},NICK,{resolved}\n".encode()
+                await broadcast_all(nick_line)
+                _log(f"{_CYN}[N]{_RST} Player {player_id} → {_YLW}{resolved}{_RST}")
+
             else:
                 await broadcast(writer, f"{player_id},".encode() + line)
+
     except (asyncio.IncompleteReadError, ConnectionResetError):
         pass
     finally:

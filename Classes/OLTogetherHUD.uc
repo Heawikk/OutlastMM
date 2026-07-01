@@ -64,6 +64,7 @@ event DrawHUD()
 {
     local OLTogetherLink Link;
     local string         StatusText;
+    local string         MyName, RemName;
     local float          X, Y;
     local byte           R, G, B;
     local int            i, AliveCount;
@@ -142,25 +143,29 @@ event DrawHUD()
 
     if (TogetherController.MyPlayerID > 0)
     {
+        MyName = TogetherController.MyNickname != "" ? TogetherController.MyNickname : ("Player " $ TogetherController.MyPlayerID);
+
         Canvas.SetPos(X + 1, Y + 1);
         Canvas.SetDrawColor(0, 0, 0, 120);
-        Canvas.DrawText("  Player " $ TogetherController.MyPlayerID $ " (You)",, 1.0, 1.0);
+        Canvas.DrawText("  " $ MyName $ " (You)",, 1.0, 1.0);
 
         Canvas.SetPos(X, Y);
         Canvas.SetDrawColor(120, 220, 120, 200);
-        Canvas.DrawText("  Player " $ TogetherController.MyPlayerID $ " (You)",, 1.0, 1.0);
+        Canvas.DrawText("  " $ MyName $ " (You)",, 1.0, 1.0);
         Y += 16;
     }
 
     for (i = 0; i < TogetherController.RemotePlayers.Length; i++)
     {
+        RemName = TogetherController.RemotePlayers[i].Nickname != "" ? TogetherController.RemotePlayers[i].Nickname : ("Player " $ TogetherController.RemotePlayers[i].PlayerID);
+
         Canvas.SetPos(X + 1, Y + 1);
         Canvas.SetDrawColor(0, 0, 0, 120);
-        Canvas.DrawText("  Player " $ TogetherController.RemotePlayers[i].PlayerID,, 1.0, 1.0);
+        Canvas.DrawText("  " $ RemName,, 1.0, 1.0);
 
         Canvas.SetPos(X, Y);
         Canvas.SetDrawColor(180, 180, 255, 200);
-        Canvas.DrawText("  Player " $ TogetherController.RemotePlayers[i].PlayerID,, 1.0, 1.0);
+        Canvas.DrawText("  " $ RemName,, 1.0, 1.0);
         Y += 16;
     }
 
@@ -231,7 +236,9 @@ function DrawPlayerLabels()
         else
             Alpha = 220.0;
 
-        LabelText = "Player " $ TogetherController.RemotePlayers[i].PlayerID;
+        LabelText = TogetherController.RemotePlayers[i].Nickname != ""
+            ? TogetherController.RemotePlayers[i].Nickname
+            : ("Player " $ TogetherController.RemotePlayers[i].PlayerID);
         Canvas.TextSize(LabelText, XL, YL);
 
         Canvas.SetPos(ScreenPos.X - XL * 0.5 + 1, ScreenPos.Y + 1);

@@ -7,6 +7,7 @@ var bool bIsResolving;
 
 var config string ServerHost;
 var config int    ServerPort;
+var config string PlayerNickname;
 
 event PostBeginPlay()
 {
@@ -74,8 +75,9 @@ event ReceivedLine(string Line)
 
 DefaultProperties
 {
-    ServerHost   = "127.0.0.1"
-    ServerPort   = 7777
-    bIsConnected = false
-    bIsResolving = false
+    ServerHost      = "127.0.0.1"
+    ServerPort      = 7777
+    PlayerNickname  = ""
+    bIsConnected    = false
+    bIsResolving    = false
 }
