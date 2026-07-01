@@ -1,4 +1,4 @@
-# OutlastMM - a fork of the OutlastTogether repository by MeinaWithAI (Meina)
+# OutlastMM - a (mega) fork of the OutlastTogether repository by MeinaWithAI (Meina)
 
 <img src="https://github.com/Heawikk/OutlastMM/raw/main/Prikol/perdezh.gif" width="100%">
 
