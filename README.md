@@ -1,6 +1,6 @@
 # OutlastMM - a fork of the OutlastTogether repository by MeinaWithAI (Meina)
 
-![OMM_1](https://github.com/Heawikk/OutlastMM/blob/main/Prikol/3.jpg)
+![OMM_1](https://github.com/Heawikk/OutlastMM/blob/main/Prikol/perdezh.gif)
 
 # Install & Run
 1. Download the repository.
