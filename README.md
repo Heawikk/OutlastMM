@@ -1,13 +1,25 @@
-# OutlastMM - a (mega) fork of the OutlastTogether repository by MeinaWithAI (Meina)
+﻿# OutlastMM - Outlast 1 Multiplayer Mod
+
+An unofficial multiplayer mod for **Outlast 1** built on UnrealScript / UDK.
 
 <img src="https://github.com/Heawikk/OutlastMM/raw/main/Prikol/perdezh.gif" width="100%">
 
-# Install & Run
-1. Download the repository.
-2. Extract the folder to any convenient location (make sure there are no Cyrillic characters in the file path).
-3. Copy the `OLGame` folder into the game's root directory.
-4. In the game root directory, open `OLGame/Config/DefaultMultiplayer.ini` and enter the server's IP, port and your nickname.
-5. In the main folder, open the config.ini file and replace the path with the path to your game's executable file.
-6. If you are the host, launch the game via `run_host.bat`. If you are a player, use one of the `run_client_#.bat` files (make sure that no two players launch a batch file with the same number).
-7. Load into the same checkpoint.
-8. Enjoy!
+---
+
+## Install & Run
+
+1. Download or clone the repository to any folder. **No Cyrillic characters in the path.**
+2. Copy `Multiplayer.u` into your Outlast directory: `OLGame\CookedPCConsole\MultiplayerContent\` (create the folder if it does not exist).
+3. Copy the `OLGame\Config\DefaultMultiplayer.ini` file into `<Outlast root>\OLGame\Config\`.
+4. Open `DefaultMultiplayer.ini` and set the server IP, port, and your nickname.
+5. Open `config.ini` and set the path to your Outlast executable (`GAME=...`).
+6. Run `omm.bat`.
+
+---
+
+## Running a session
+
+- **Server PC or VPS:** choose `[4] Run Server`.
+- **Host:** choose `[1] Run Host`.
+- **Joiner:** choose `[2] Run Joiner` and enter a unique role number (1, 2, 3 ...). No two players can use the same number.
+- Load into the same checkpoint and enjoy!
