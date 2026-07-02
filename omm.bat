@@ -3,7 +3,6 @@ setlocal enabledelayedexpansion
 
 cd /d "%~dp0"
 CALL _load_config.cmd
-if "%NOSTEAM%"=="" set "NOSTEAM=false"
 
 :MENU
 cls
@@ -34,11 +33,7 @@ cls
 if "%GAME_DIR%"=="" ( echo   [ERROR] Game path not set. Go to [5] Settings. & pause & goto MENU )
 call :WRITE_MULTIPLAYER_INI
 echo   Starting HOST (Role=0)...
-if /i "%NOSTEAM%"=="true" (
-    start "" "%GAME%" "Intro_Persistent?game=Multiplayer.OLTogetherGame?Role=0?QuickPlay" -log -WINDOWED -ResX=1920 -ResY=1080 -WinX=50 -WinY=200 -nosteam
-) else (
-    start "" "%GAME%" "Intro_Persistent?game=Multiplayer.OLTogetherGame?Role=0?QuickPlay" -log
-)
+start "" "%GAME%" "Intro_Persistent?game=Multiplayer.OLTogetherGame?Role=0" -log -nosteam
 echo   Done!
 pause
 goto MENU
@@ -59,11 +54,7 @@ if %ROLE_NUM% GTR 255 ( echo   Invalid number. & goto JOINER_INPUT )
 call :WRITE_MULTIPLAYER_INI
 echo.
 echo   Starting JOINER (Role=%ROLE_NUM%)...
-if /i "%NOSTEAM%"=="true" (
-    start "" "%GAME%" "Intro_Persistent?game=Multiplayer.OLTogetherGame?Role=%ROLE_NUM%?QuickPlay" -log -WINDOWED -ResX=1920 -ResY=1080 -WinX=50 -WinY=200 -nosteam
-) else (
-    start "" "%GAME%" "Intro_Persistent?game=Multiplayer.OLTogetherGame?Role=%ROLE_NUM%?QuickPlay" -log
-)
+start "" "%GAME%" "Intro_Persistent?game=Multiplayer.OLTogetherGame?Role=%ROLE_NUM%" -log -nosteam
 echo   Done! Wait for the game to load and connect.
 pause
 goto MENU
@@ -123,7 +114,6 @@ echo   [3] Server Port:      %SERVER_PORT%
 echo   [4] Nickname:         %_N%
 echo   [5] Fade Nearby:      %FADE_NEARBY%
 echo   [6] Game Version:     %GAME_VERSION%
-echo   [7] No-Steam Mode:    %NOSTEAM%
 echo.
 echo   [0] Back
 echo.
@@ -134,7 +124,6 @@ if "%SCHOICE%"=="3" goto EDIT_PORT
 if "%SCHOICE%"=="4" goto EDIT_NICK
 if "%SCHOICE%"=="5" goto EDIT_FADE
 if "%SCHOICE%"=="6" goto EDIT_VERSION
-if "%SCHOICE%"=="7" goto EDIT_NOSTEAM
 if "%SCHOICE%"=="0" goto MENU
 goto SETTINGS
 
@@ -207,25 +196,6 @@ goto EDIT_VERSION
 :SAVE_VERSION
 set "GAME=%GAME_DIR%\Binaries\%GAME_VERSION%\OLGame.exe"
 set "SAVE_KEY=GAME_VERSION" & set "SAVE_VAL=%GAME_VERSION%" & call :SAVE_CONFIG
-goto SETTINGS
-
-:EDIT_NOSTEAM
-cls
-echo.
-echo   No-Steam Mode
-echo   --------------------------------
-echo   [1] true  - bypass Steam, force windowed 1920x1080
-echo   [2] false - use Steam, keep your saved settings
-echo.
-echo   [0] Back
-echo.
-set /p NCHOICE=    Choice:
-if "%NCHOICE%"=="1" ( set "NOSTEAM=true"  & goto SAVE_NOSTEAM )
-if "%NCHOICE%"=="2" ( set "NOSTEAM=false" & goto SAVE_NOSTEAM )
-if "%NCHOICE%"=="0" goto SETTINGS
-goto EDIT_NOSTEAM
-:SAVE_NOSTEAM
-set "SAVE_KEY=NOSTEAM" & set "SAVE_VAL=%NOSTEAM%" & call :SAVE_CONFIG
 goto SETTINGS
 
 :: ─────────────────────────────────────────────
