@@ -23,3 +23,7 @@ An unofficial multiplayer mod for **Outlast 1** built on UnrealScript / UDK.
 - **Host:** choose `[1] Run Host`.
 - **Joiner:** choose `[2] Run Joiner` and enter a unique role number (1, 2, 3 ...). No two players can use the same number.
 - Load into the same checkpoint and enjoy!
+
+## Additional Info 
+- The repository was previously based on the OutlastTogether repository by MeinaWithAI
+- Beerymaid (ShyKiss) also worked on this repository
