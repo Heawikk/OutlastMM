@@ -114,6 +114,12 @@ function DrawStatusPanel()
         SR = 130; SG = 130; SB = 130;
         RightText = "INIT";
     }
+    else if (Link.bIsReconnecting)
+    {
+        AR = 210; AG = 148; AB = 28;
+        SR = 210; SG = 148; SB = 28;
+        RightText = "RECONNECTING";
+    }
     else if (Link.bIsResolving)
     {
         AR = 210; AG = 148; AB = 28;

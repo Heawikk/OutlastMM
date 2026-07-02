@@ -30,6 +30,8 @@ struct RemotePlayerState
 var array<RemotePlayerState> RemotePlayers;
 var Pawn   LastSeenPawn;
 var string MyNickname;
+var bool   bGhostMode;
+var bool   bBindsSetup;
 
 
 
@@ -41,6 +43,16 @@ simulated event PostBeginPlay()
     if (NetworkLink != None)
         NetworkLink.ControllerOwner = self;
     SetTimer(1.0, true, 'SendPing');
+}
+
+exec function ToggleGhostMode()
+{
+    local OLTogetherHUD THUD;
+    bGhostMode = !bGhostMode;
+    ConsoleCommand("ghost");
+    THUD = OLTogetherHUD(myHUD);
+    if (THUD != None)
+        THUD.AddNotification(bGhostMode ? "Ghost On" : "Ghost Off");
 }
 
 function int FindRemoteIndex(int PlayerID)
@@ -82,6 +94,12 @@ event PlayerTick(float DeltaTime)
     local OLHero  DH;
 
     super.PlayerTick(DeltaTime);
+
+    if (!bBindsSetup && Pawn != None)
+    {
+        bBindsSetup = true;
+        ConsoleCommand("setbind G ToggleGhostMode");
+    }
 
     // --- Send local player state ---
     if (NetworkLink != None && NetworkLink.bIsConnected && Pawn != None)
@@ -311,6 +329,16 @@ function PlayCrouchIdleFor(int PlayerID)
     DH = OLHero(RemotePlayers[Idx].DummyPlayer);
     if (DH != None && DH.ShadowProxyFullBodyAnimSlot != None)
         DH.ShadowProxyFullBodyAnimSlot.PlayCustomAnim('player_crouch_idle', 1.0, 0.15, 0.0, true, true);
+}
+
+// Called by OLTogetherLink when a (re)connection is established
+function OnReconnected()
+{
+    local int i;
+    // Remove stale dummies from the previous session so NICK packets re-create them fresh
+    for (i = RemotePlayers.Length - 1; i >= 0; i--)
+        RemoveRemotePlayer(RemotePlayers[i].PlayerID);
+    bGhostMode = false;
 }
 
 // --- Remote player lifetime ---
@@ -682,4 +710,6 @@ DefaultProperties
     MyPlayerID       = 0
     LastPingSentTime = 0.0
     PingMs           = 0
+    bGhostMode       = false
+    bBindsSetup      = false
 }

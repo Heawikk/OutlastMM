@@ -4,6 +4,7 @@ class OLTogetherLink extends TcpLink
 var OLTogetherController ControllerOwner;
 var bool bIsConnected;
 var bool bIsResolving;
+var bool bIsReconnecting;
 
 var config string ServerHost;
 var config int    ServerPort;
@@ -43,6 +44,18 @@ function TryStartConnect()
     Resolve(ServerHost);
 }
 
+function AttemptReconnect()
+{
+    if (ControllerOwner == None || ControllerOwner.Pawn == None)
+    {
+        SetTimer(3.0, false, 'AttemptReconnect');
+        return;
+    }
+    bIsResolving = true;
+    `log("OutlastMM: Reconnecting to" @ ServerHost $ ":" $ string(ServerPort));
+    Resolve(ServerHost);
+}
+
 event Resolved(IpAddr Addr)
 {
     bIsResolving = false;
@@ -53,21 +66,29 @@ event Resolved(IpAddr Addr)
 
 event ResolveFailed()
 {
-    bIsResolving = false;
-    bIsConnected = false;
-    `log("OutlastMM: DNS resolve failed for" @ ServerHost);
+    bIsResolving    = false;
+    bIsConnected    = false;
+    bIsReconnecting = true;
+    `log("OutlastMM: DNS resolve failed. Retrying in 3s...");
+    SetTimer(3.0, false, 'AttemptReconnect');
 }
 
 event Opened()
 {
-    bIsConnected = true;
+    bIsConnected    = true;
+    bIsReconnecting = false;
     `log("OutlastMM: Connected to" @ ServerHost $ ":" $ string(ServerPort));
+    if (ControllerOwner != None)
+        ControllerOwner.OnReconnected();
 }
 
 event Closed()
 {
-    bIsConnected = false;
-    `log("OutlastMM: Disconnected.");
+    bIsConnected    = false;
+    bIsResolving    = false;
+    bIsReconnecting = true;
+    `log("OutlastMM: Disconnected. Reconnecting in 3s...");
+    SetTimer(3.0, false, 'AttemptReconnect');
 }
 
 event ReceivedLine(string Line)
@@ -86,4 +107,5 @@ DefaultProperties
     NearbyFadeHysteresis = 50.0
     bIsConnected         = false
     bIsResolving         = false
+    bIsReconnecting      = false
 }
