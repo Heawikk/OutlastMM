@@ -182,6 +182,8 @@ event PlayerTick(float DeltaTime)
 
 function SetupDummyVisuals(OLHero H)
 {
+    local OLHero LocalHero;
+
     if (H == None) return;
     if (H.Mesh != None)
     {
@@ -203,7 +205,15 @@ function SetupDummyVisuals(OLHero H)
         H.HeadMesh.SetOwnerNoSee(false);
     }
     if (H.CameraMeshShadowProxy != None)
+    {
         H.CameraMeshShadowProxy.SetHidden(true);
+
+        // handycamShadow has no materials (shadow-only mesh) → white for remote players.
+        // Swap in the textured handycam mesh so the camera renders correctly.
+        LocalHero = OLHero(Pawn);
+        if (LocalHero != None && LocalHero.CameraMesh != None)
+            H.CameraMeshShadowProxy.SetSkeletalMesh(LocalHero.CameraMesh.SkeletalMesh);
+    }
 }
 
 function UpdateCrouchAnim(int Idx, vector AnimVel2D)
